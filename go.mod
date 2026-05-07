@@ -1,3 +1,3 @@
-module DHPC-ipher
+module DHCP-ipher
 
 go 1.25.9

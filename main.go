@@ -1,6 +1,6 @@
 package main
 
-import "DHPC-ipher/server"
+import "DHCP-ipher/server"
 
 func main() {
 	srvr := new(server.Server)
