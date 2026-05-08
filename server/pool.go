@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
+// Defines the Pool of IP addresses available to be allocated
 type IPPool struct {
+	ServerIP      net.IP
 	StartingIP    net.IP
 	EndingIP      net.IP
 	SubnetMask    net.IPMask
@@ -18,8 +20,9 @@ type IPPool struct {
 }
 
 // Constructor func for IPPool struct
-func NewIPPool(strtIP net.IP, endIP net.IP, snmask net.IPMask, routerIP net.IP, leaseduration time.Duration) *IPPool {
+func NewIPPool(srvrIP net.IP, strtIP net.IP, endIP net.IP, snmask net.IPMask, routerIP net.IP, leaseduration time.Duration) *IPPool {
 	return &IPPool{
+		ServerIP:      srvrIP,
 		StartingIP:    strtIP,
 		EndingIP:      endIP,
 		SubnetMask:    snmask,
@@ -29,6 +32,7 @@ func NewIPPool(strtIP net.IP, endIP net.IP, snmask net.IPMask, routerIP net.IP, 
 	}
 }
 
+// Allocates IP address to the provided MAC address. If one already exists, returns the existing lease
 func (r *IPPool) AllocateIP(clientMAC net.HardwareAddr) (*Lease, error) {
 	for _, lease := range r.LeaseMap {
 		if bytes.Equal(lease.ClientMAC, clientMAC) {
