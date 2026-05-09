@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"log"
 	"net"
 	"time"
 )
 
-// Defines the Pool of IP addresses available to be allocated
+// IPPool defines the Pool of IP addresses available to be allocated
 type IPPool struct {
 	ServerIP      net.IP
 	StartingIP    net.IP
@@ -17,10 +18,20 @@ type IPPool struct {
 	RouterIP      net.IP
 	LeaseDuration time.Duration
 	LeaseMap      map[string]*Lease
+	DNSServers    []net.IP
+	BroadcastIP   net.IP
 }
 
-// Constructor func for IPPool struct
-func NewIPPool(srvrIP net.IP, strtIP net.IP, endIP net.IP, snmask net.IPMask, routerIP net.IP, leaseduration time.Duration) *IPPool {
+// NewIPPool is a constructor func for IPPool struct
+func NewIPPool(srvrIP net.IP, strtIP net.IP, endIP net.IP, snmask net.IPMask, routerIP net.IP, DNSServers []string, leaseduration time.Duration) *IPPool {
+	var DNSIPs []net.IP
+	for _, serverStr := range DNSServers {
+		parsedIP := net.ParseIP(serverStr)
+		if parsedIP != nil {
+			DNSIPs = append(DNSIPs, parsedIP)
+		}
+	}
+
 	return &IPPool{
 		ServerIP:      srvrIP,
 		StartingIP:    strtIP,
@@ -28,11 +39,13 @@ func NewIPPool(srvrIP net.IP, strtIP net.IP, endIP net.IP, snmask net.IPMask, ro
 		SubnetMask:    snmask,
 		RouterIP:      routerIP,
 		LeaseDuration: leaseduration,
-		LeaseMap:      make(map[string]*Lease), // key: IP leased
+		LeaseMap:      make(map[string]*Lease), // key: IP leased to the client
+		DNSServers:    DNSIPs,
+		BroadcastIP:   getBroadcastIP(srvrIP, snmask),
 	}
 }
 
-// Allocates IP address to the provided MAC address. If one already exists, returns the existing lease
+// AllocateIP allocates IP address to the provided MAC address. If one already exists, returns the existing lease
 func (r *IPPool) AllocateIP(clientMAC net.HardwareAddr) (*Lease, error) {
 	for _, lease := range r.LeaseMap {
 		if bytes.Equal(lease.ClientMAC, clientMAC) {
@@ -77,4 +90,25 @@ func int2ip(nn uint32) net.IP {
 	ip := make(net.IP, 4)
 	binary.BigEndian.PutUint32(ip, nn)
 	return ip
+}
+
+// getBroadcastIP calculates the broadcast address for a given IP and Subnet Mask
+func getBroadcastIP(ip net.IP, mask net.IPMask) net.IP {
+	ip4 := ip.To4()
+	broadcast := make(net.IP, 4)
+	for i := range 4 {
+		broadcast[i] = ip4[i] | ^mask[i]
+	}
+	return broadcast
+}
+
+func (r *IPPool) CleanupExpiredLeases() {
+	now := time.Now()
+
+	for ip, lease := range r.LeaseMap {
+		if now.After(lease.ExpiresAt) {
+			log.Printf("Lease expired for IP %s (MAC: %s)", lease.LeasedIP.String(), lease.ClientMAC.String())
+			delete(r.LeaseMap, ip)
+		}
+	}
 }

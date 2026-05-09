@@ -1,0 +1,18 @@
+# The IP address of the DHCP Server itself
+server_ip: "192.168.1.1"
+
+# The range of IPs to hand out
+starting_ip: "192.168.1.100"
+ending_ip: "192.168.1.200"
+
+# Network configuration for clients
+subnet_mask: "255.255.255.0"
+router_ip: "192.168.1.1"
+
+# Default lease duration in hours
+lease_duration_hours: 24
+
+# DNS servers to provide to clients
+dns_servers:
+  - "8.8.8.8"
+  - "1.1.1.1"

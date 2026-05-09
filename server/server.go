@@ -15,15 +15,8 @@ type Server struct {
 	Pool *IPPool
 }
 
-func NewServer() *Server {
-	pool := NewIPPool(
-		net.ParseIP("192.168.1.1"),
-		net.ParseIP("192.168.1.100"),
-		net.ParseIP("192.168.1.200"),
-		net.IPv4Mask(255, 255, 255, 0),
-		net.ParseIP("192.168.1.1"),
-		24*time.Hour,
-	)
+func NewServer(cfg *Config) *Server {
+	pool := NewIPPool(net.ParseIP(cfg.ServerIP), net.ParseIP(cfg.StartingIP), net.ParseIP(cfg.EndingIP), net.IPMask(net.ParseIP(cfg.SubnetMask).To4()), net.ParseIP(cfg.RouterIP), cfg.DNSServers, time.Duration(cfg.LeaseDurationHours)*time.Hour)
 
 	return &Server{Pool: pool}
 }
@@ -46,8 +39,17 @@ func (s *Server) Start() {
 
 	buffer := make([]byte, 4096)
 
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			s.Pool.CleanupExpiredLeases()
+		}
+	}()
+
 	for {
-		n, remoteAddr, err := conn.ReadFromUDP(buffer)
+		n, remoteAddr, _ := conn.ReadFromUDP(buffer)
 
 		// Packet logging for debugging
 		// if err == nil {
@@ -76,7 +78,7 @@ func (s *Server) Start() {
 
 		if msgType, ok := packet.Options[53]; ok && len(msgType) == 1 {
 			switch msgType[0] {
-			// DHCPDISCOVER: Replies with a DHCP offer packet if IP allocation is successful
+			// DHCPDISCOVER: Replies with a DHCP offer packet if IP allocation is successful, else log error and ignore request
 			case 1:
 				log.Printf("DHCPDISCOVER packet recieved")
 
@@ -87,11 +89,15 @@ func (s *Server) Start() {
 
 				offerPacket := s.buildReply(packet, lease, 2)
 				offerBytes := offerPacket.Serialize()
-				conn.WriteToUDP(offerBytes, &net.UDPAddr{IP: net.ParseIP("192.168.1.255"), Port: 68})
+				_, err = conn.WriteToUDP(offerBytes, &net.UDPAddr{IP: s.Pool.BroadcastIP, Port: 68})
+				if err != nil {
+					log.Printf("[CRITICAL] Failed to send packet: %v", err)
+				}
 				log.Printf("Sent DHCPOFFER for IP %s to MAC %s", lease.LeasedIP.String(), mac.String())
 
 			case 2: // DHCPOFFER
-			case 3: // DHCPREQUEST
+			// DHCPREQUEST: Replies with a DHCPACK packet if requested IP is still available, else replies with a DHCPNACK
+			case 3:
 				requestedIPBytes, ok := packet.Options[50]
 				lease, _ := s.Pool.AllocateIP(mac)
 				if ok {
@@ -100,13 +106,19 @@ func (s *Server) Start() {
 						log.Printf("DHCPNAK: Client requested %s but we offered %s", requestedIP.String(), lease.LeasedIP.String())
 
 						nakPacket := s.buildReply(packet, lease, 6)
-						conn.WriteToUDP(nakPacket.Serialize(), &net.UDPAddr{IP: net.ParseIP("192.168.1.255"), Port: 68})
+						_, err = conn.WriteToUDP(nakPacket.Serialize(), &net.UDPAddr{IP: s.Pool.BroadcastIP, Port: 68})
+						if err != nil {
+							log.Printf("[CRITICAL] Failed to send packet: %v", err)
+						}
 						continue
 					}
 				}
 
 				ackPacket := s.buildReply(packet, lease, 5)
-				conn.WriteToUDP(ackPacket.Serialize(), &net.UDPAddr{IP: net.ParseIP("192.168.1.255"), Port: 68})
+				_, err = conn.WriteToUDP(ackPacket.Serialize(), &net.UDPAddr{IP: s.Pool.BroadcastIP, Port: 68})
+				if err != nil {
+					log.Printf("[CRITICAL] Failed to send packet: %v", err)
+				}
 				log.Printf("Sent DHCPACK for IP %s to MAC %s", lease.LeasedIP.String(), mac.String())
 
 			case 4: // DHCPDECLINE
@@ -148,6 +160,14 @@ func (s *Server) buildReply(req *DHCPPacket, lease *Lease, msgType byte) *DHCPPa
 	replyPacket.Options[1] = []byte(s.Pool.SubnetMask)
 	replyPacket.Options[3] = []byte(s.Pool.RouterIP.To4())
 	replyPacket.Options[54] = []byte(s.Pool.ServerIP.To4())
+
+	var DNSIPs []byte
+	for _, IP := range s.Pool.DNSServers {
+		if v4 := IP.To4(); v4 != nil {
+			DNSIPs = append(DNSIPs, v4...)
+		}
+	}
+	replyPacket.Options[6] = DNSIPs
 
 	leaseBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(leaseBytes, uint32(s.Pool.LeaseDuration.Seconds()))

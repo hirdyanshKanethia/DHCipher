@@ -1,3 +1,8 @@
+// Package server implements a custom DHCPv4 server.
+//
+// It handles the full DORA state machine (Discover, Offer,
+// Request, Acknowledge) as defined in RFC 2131, and manages
+// a pool of IP addresses based on a YAML configuration.
 package server
 
 import (
@@ -91,7 +96,18 @@ func (r DHCPPacket) Serialize() []byte {
 
 	binary.BigEndian.PutUint32(b[236:240], 0x63825363)
 
+	// option 53 should be the first options in any DHCP packet
+	if msgType, ok := r.Options[53]; ok {
+		b = append(b, 53)
+		b = append(b, byte(len(msgType)))
+		b = append(b, msgType...)
+	}
+
 	for key, value := range r.Options {
+		if key == 53 {
+			continue
+		}
+
 		b = append(b, key)
 
 		length := len(value)
