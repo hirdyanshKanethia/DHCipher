@@ -37,8 +37,6 @@ func (s *Server) Start() {
 
 	log.Printf("Listening for DHCP packets on %s\n", addr.String())
 
-	buffer := make([]byte, 4096)
-
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
@@ -49,6 +47,7 @@ func (s *Server) Start() {
 	}()
 
 	for {
+		buffer := make([]byte, 4096)
 		n, remoteAddr, _ := conn.ReadFromUDP(buffer)
 
 		// Packet logging for debugging
@@ -77,12 +76,22 @@ func (s *Server) Start() {
 		log.Printf("DHCP Packet received from %s (MAC: %s, XID: %d, Options length: %d)", remoteAddr.IP.String(), mac.String(), packet.Xid, len(packet.Options))
 
 		if msgType, ok := packet.Options[53]; ok && len(msgType) == 1 {
+			// log.Printf("msgType for packet: %d", msgType[0])
 			switch msgType[0] {
 			// DHCPDISCOVER: Replies with a DHCP offer packet if IP allocation is successful, else log error and ignore request
 			case 1:
 				log.Printf("DHCPDISCOVER packet recieved")
 
-				lease, err := s.Pool.AllocateIP(mac)
+				var lease *Lease
+				var err error
+
+				if reqIPBytes, ok := packet.Options[50]; ok {
+					log.Printf("Client requested specific IP: %s", net.IP(reqIPBytes).String())
+					lease, err = s.Pool.AllocateRequestedIP(mac, net.IP(reqIPBytes))
+				} else {
+					lease, err = s.Pool.AllocateIP(mac)
+				}
+
 				if err != nil {
 					log.Printf("[ERROR] Ran out of available IPs while allocating IP address to mac address (%s)", mac.String())
 				}

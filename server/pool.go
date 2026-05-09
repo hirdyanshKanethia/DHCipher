@@ -112,3 +112,30 @@ func (r *IPPool) CleanupExpiredLeases() {
 		}
 	}
 }
+
+func (r *IPPool) AllocateRequestedIP(clientMAC net.HardwareAddr, reqIP net.IP) (*Lease, error) {
+	if lease, ok := r.LeaseMap[reqIP.String()]; ok {
+		// Case: reqIP is given to same client
+		if bytes.Equal(clientMAC, lease.ClientMAC) {
+			lease.ExpiresAt = time.Now().Add(r.LeaseDuration)
+			return lease, nil
+		}
+
+		if time.Now().Before(lease.ExpiresAt) {
+			return r.AllocateIP(clientMAC)
+		}
+	}
+
+	reqIPInt := ip2int(reqIP)
+	if reqIPInt >= ip2int(r.StartingIP) && reqIPInt <= ip2int(r.EndingIP) {
+		newLease := &Lease{
+			LeasedIP:  reqIP,
+			ClientMAC: clientMAC,
+			ExpiresAt: time.Now().Add(r.LeaseDuration),
+		}
+		r.LeaseMap[reqIP.String()] = newLease
+		return newLease, nil
+	}
+
+	return r.AllocateIP(clientMAC)
+}
