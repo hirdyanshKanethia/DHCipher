@@ -12,7 +12,11 @@ router_ip: "192.168.1.1"
 # Default lease duration in hours
 lease_duration_hours: 24
 
-# DNS servers to provide to clients
-dns_servers:
-  - "8.8.8.8"
-  - "1.1.1.1"
+# DNS server IP
+dns_servers: ["8.8.8.8", "1.1.1.1"]
+
+# Log file name
+log_file: "/var/log/dhcp-ipher.log"
+
+# JSON file to save leases (used by the server to save and load leases for persistence)
+lease_file: "/var/lib/dhcp-ipher/leases.json"

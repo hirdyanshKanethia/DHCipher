@@ -16,6 +16,7 @@ type Config struct {
 	LeaseDurationHours int      `yaml:"lease_duration_hours"`
 	DNSServers         []string `yaml:"dns_servers"`
 	LogFile            string   `yaml:"log_file"`
+	LeaseJSONfile      string   `yaml:"lease_file"`
 }
 
 func LoadConfig(filename string) (*Config, error) {

@@ -20,13 +20,18 @@ type Server struct {
 }
 
 func NewServer(cfg *Config) *Server {
-	pool := NewIPPool(net.ParseIP(cfg.ServerIP), net.ParseIP(cfg.StartingIP), net.ParseIP(cfg.EndingIP), net.IPMask(net.ParseIP(cfg.SubnetMask).To4()), net.ParseIP(cfg.RouterIP), cfg.DNSServers, time.Duration(cfg.LeaseDurationHours)*time.Hour)
+	pool := NewIPPool(net.ParseIP(cfg.ServerIP), net.ParseIP(cfg.StartingIP), net.ParseIP(cfg.EndingIP), net.IPMask(net.ParseIP(cfg.SubnetMask).To4()), net.ParseIP(cfg.RouterIP), cfg.DNSServers, time.Duration(cfg.LeaseDurationHours)*time.Hour, cfg.LeaseJSONfile)
 
 	return &Server{Pool: pool}
 }
 
 func (s *Server) Start() {
 	log.Println("Starting DHCP Server...")
+
+	err := s.Pool.LoadLeases()
+	if err != nil {
+		log.Printf("[WARNING] JSON file (%s) used for saving leases not found. If this is a first start of the server on the machine, then this is normal. Error: %s", s.Pool.LeaseJSONfile, err)
+	}
 
 	addr, err := net.ResolveUDPAddr("udp4", "0.0.0.0:67")
 	if err != nil {
@@ -49,6 +54,7 @@ func (s *Server) Start() {
 		sig := <-sigChan
 		log.Printf("Received signal: %s. Shutting down gracefully...", sig)
 		conn.Close()
+		s.Pool.SaveLeases()
 		os.Exit(0)
 	}()
 
@@ -120,7 +126,10 @@ func (s *Server) Start() {
 				}
 				log.Printf("Sent DHCPOFFER for IP %s to MAC %s", lease.LeasedIP.String(), mac.String())
 
+				s.Pool.SaveLeases()
+
 			case 2: // DHCPOFFER
+
 			// DHCPREQUEST: Replies with a DHCPACK packet if requested IP is still available, else replies with a DHCPNACK
 			case 3:
 				requestedIPBytes, ok := packet.Options[50]
@@ -146,23 +155,33 @@ func (s *Server) Start() {
 				}
 				log.Printf("Sent DHCPACK for IP %s to MAC %s", lease.LeasedIP.String(), mac.String())
 
+				s.Pool.SaveLeases()
+
 			case 4: // DHCPDECLINE
+
 			case 5: // DHCPACK
+
 			case 6: // DHCPNAK
-			// DHCPRELEASE:
+
+			// DHCPRELEASE: releases the lease for IP from the LeaseMap
 			case 7:
 				log.Printf("DHCPRELEASE recieved from MAC %s", mac.String())
-				for ipStr, lease := range s.Pool.LeaseMap {
-					if bytes.Equal(lease.ClientMAC, mac) {
-						log.Printf("Released IP %s from MAC %s", lease.LeasedIP.String(), mac.String())
-						delete(s.Pool.LeaseMap, ipStr)
-						break
-					}
-				}
-				log.Printf("DHCPRELEASE request failed. Requested IP not found in LeaseMap")
+
+				s.Pool.releaseIP(mac)
+
+				s.Pool.SaveLeases()
+
 			// DHCPINFORM:
 			case 8:
-				log.Printf("DHCPINFORM packet recieved")
+				log.Printf("DHCPINFORM received from MAC %s", mac.String())
+
+				informReply := s.buildInformReply(packet)
+				_, err = conn.WriteToUDP(informReply.Serialize(), &net.UDPAddr{IP: s.Pool.BroadcastIP, Port: 68})
+				if err != nil {
+					log.Printf("[CRITICAL] Failed to send packet: %v", err)
+				}
+				log.Printf("Sent DHCPACK (INFORM) to MAC %s", mac.String())
+
 			default:
 				log.Printf("Received DHCP message type: %d", msgType[0])
 			}
@@ -210,4 +229,50 @@ func (s *Server) buildReply(req *DHCPPacket, lease *Lease, msgType byte) *DHCPPa
 	replyPacket.Options[51] = leaseBytes
 
 	return &replyPacket
+}
+
+func (r *IPPool) releaseIP(mac net.HardwareAddr) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for ipStr, lease := range r.LeaseMap {
+		if bytes.Equal(lease.ClientMAC, mac) {
+			log.Printf("Released IP %s from MAC %s", lease.LeasedIP.String(), mac.String())
+			delete(r.LeaseMap, ipStr)
+			return
+		}
+	}
+
+	log.Printf("DHCPRELEASE failed: no lease found for MAC %s", mac.String())
+}
+
+func (s *Server) buildInformReply(req *DHCPPacket) *DHCPPacket {
+	reply := DHCPPacket{
+		Op:     2,
+		Htype:  req.Htype,
+		Hlen:   req.Hlen,
+		Hops:   0,
+		Xid:    req.Xid,
+		Flags:  req.Flags,
+		Ciaddr: req.Ciaddr,
+		Yiaddr: net.IPv4(0, 0, 0, 0),
+		Giaddr: req.Giaddr,
+		Chaddr: req.Chaddr,
+	}
+
+	reply.Options = make(map[byte][]byte)
+	reply.Options[53] = []byte{5} // DHCPACK
+	reply.Options[1] = []byte(s.Pool.SubnetMask)
+	reply.Options[3] = []byte(s.Pool.RouterIP.To4())
+	reply.Options[54] = []byte(s.Pool.ServerIP.To4())
+
+	var DNSIPs []byte
+	for _, IP := range s.Pool.DNSServers {
+		if v4 := IP.To4(); v4 != nil {
+			DNSIPs = append(DNSIPs, v4...)
+		}
+	}
+	reply.Options[6] = DNSIPs
+
+	return &reply
 }
