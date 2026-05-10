@@ -15,6 +15,7 @@ type Config struct {
 	RouterIP           string   `yaml:"router_ip"`
 	LeaseDurationHours int      `yaml:"lease_duration_hours"`
 	DNSServers         []string `yaml:"dns_servers"`
+	LogFile            string   `yaml:"log_file"`
 }
 
 func LoadConfig(filename string) (*Config, error) {
