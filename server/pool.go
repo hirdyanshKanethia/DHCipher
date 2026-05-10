@@ -45,10 +45,11 @@ func NewIPPool(srvrIP net.IP, strtIP net.IP, endIP net.IP, snmask net.IPMask, ro
 	}
 }
 
-// AllocateIP allocates IP address to the provided MAC address. If one already exists, returns the existing lease
+// AllocateIP allocates IP address to the provided MAC address. If one already exists, returns the existing lease with renewed LeaseDuration
 func (r *IPPool) AllocateIP(clientMAC net.HardwareAddr) (*Lease, error) {
 	for _, lease := range r.LeaseMap {
 		if bytes.Equal(lease.ClientMAC, clientMAC) {
+			lease.ExpiresAt = time.Now().Add(r.LeaseDuration)
 			return lease, nil
 		}
 	}

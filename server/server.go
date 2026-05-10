@@ -3,9 +3,13 @@ package server
 import (
 	// "encoding/hex"
 	// "fmt"
+	"bytes"
 	"encoding/binary"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 	// "os"
 	// "time"
@@ -37,6 +41,18 @@ func (s *Server) Start() {
 
 	log.Printf("Listening for DHCP packets on %s\n", addr.String())
 
+	// graceful shutdown goroutine
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Printf("Received signal: %s. Shutting down gracefully...", sig)
+		conn.Close()
+		os.Exit(0)
+	}()
+
+	// cleanup goroutine
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
@@ -68,7 +84,7 @@ func (s *Server) Start() {
 
 		packet, err := ParsePacket(buffer[:n])
 		if err != nil {
-			log.Printf("Parsing error for packet: %v", err)
+			// log.Printf("Parsing error for packet: %v", err)
 			continue
 		}
 
@@ -133,8 +149,19 @@ func (s *Server) Start() {
 			case 4: // DHCPDECLINE
 			case 5: // DHCPACK
 			case 6: // DHCPNAK
-			case 7: // DHCPRELEASE
-			case 8: // DHCPINFORM
+			// DHCPRELEASE:
+			case 7:
+				log.Printf("DHCPRELEASE recieved from MAC %s", mac.String())
+				for ipStr, lease := range s.Pool.LeaseMap {
+					if bytes.Equal(lease.ClientMAC, mac) {
+						log.Printf("Released IP %s from MAC %s", lease.LeasedIP.String(), mac.String())
+						delete(s.Pool.LeaseMap, ipStr)
+						break
+					}
+				}
+				log.Printf("DHCPRELEASE request failed. Requested IP not found in LeaseMap")
+			// DHCPINFORM:
+			case 8:
 				log.Printf("DHCPINFORM packet recieved")
 			default:
 				log.Printf("Received DHCP message type: %d", msgType[0])
