@@ -136,6 +136,21 @@ func (r *IPPool) AllocateRequestedIP(clientMAC net.HardwareAddr, reqIP net.IP) (
 	return r.allocateIP(clientMAC)
 }
 
+func (r *IPPool) releaseIP(mac net.HardwareAddr) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for ipStr, lease := range r.LeaseMap {
+		if bytes.Equal(lease.ClientMAC, mac) {
+			log.Printf("Released IP %s from MAC %s", lease.LeasedIP.String(), mac.String())
+			delete(r.LeaseMap, ipStr)
+			return
+		}
+	}
+
+	log.Printf("DHCPRELEASE failed: no lease found for MAC %s", mac.String())
+}
+
 // HELPER FUNCTIONS
 
 // converts net.IP to a 32-bit integer value

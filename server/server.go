@@ -1,9 +1,6 @@
 package server
 
 import (
-	// "encoding/hex"
-	// "fmt"
-	"bytes"
 	"encoding/binary"
 	"log"
 	"net"
@@ -11,8 +8,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	// "os"
-	// "time"
 )
 
 type Server struct {
@@ -229,21 +224,6 @@ func (s *Server) buildReply(req *DHCPPacket, lease *Lease, msgType byte) *DHCPPa
 	replyPacket.Options[51] = leaseBytes
 
 	return &replyPacket
-}
-
-func (r *IPPool) releaseIP(mac net.HardwareAddr) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for ipStr, lease := range r.LeaseMap {
-		if bytes.Equal(lease.ClientMAC, mac) {
-			log.Printf("Released IP %s from MAC %s", lease.LeasedIP.String(), mac.String())
-			delete(r.LeaseMap, ipStr)
-			return
-		}
-	}
-
-	log.Printf("DHCPRELEASE failed: no lease found for MAC %s", mac.String())
 }
 
 func (s *Server) buildInformReply(req *DHCPPacket) *DHCPPacket {
