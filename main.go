@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"DHCP-ipher/server"
+	"DHCipher/server"
 )
 
 func main() {

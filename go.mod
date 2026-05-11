@@ -1,4 +1,4 @@
-module DHCP-ipher
+module DHCipher
 
 go 1.25.9
 

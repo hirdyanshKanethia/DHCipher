@@ -16,7 +16,7 @@ lease_duration_hours: 24
 dns_servers: ["8.8.8.8", "1.1.1.1"]
 
 # Log file name
-log_file: "/var/log/dhcp-ipher.log"
+log_file: "/var/log/dhcipher.log"
 
 # JSON file to save leases (used by the server to save and load leases for persistence)
-lease_file: "/var/lib/dhcp-ipher/leases.json"
+lease_file: "/var/lib/dhcipher/leases.json"
